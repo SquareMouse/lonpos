@@ -65,6 +65,19 @@ class GameState:
                     for row in range(num_rows):
                         for col in range(num_cols):
                             if convolved[row, col] == 0:
+                                ok = False
+                                if row == 0 or row == convolved.shape[0] - 1:
+                                    ok = True
+                                if col == 0 or col == convolved.shape[1] - 1:
+                                    ok = True
+                                for (row_diff, col_diff) in [(r,c) for r in [-1,1] for c in [-1,1]]:
+                                    if ok == True:
+                                        break
+                                    if convolved[row + row_diff, col + col_diff] != 0:
+                                        ok = True
+                                if ok == False:
+                                    continue
+                                        
                                 placement2 = PiecePlacement(
                                     piece=placement1.piece,
                                     flipped=flip,
@@ -108,7 +121,25 @@ def apply_all_placements(placements) -> GameState:
             continue
         gs = gs.apply_placement(placement=placement)
     return gs
-    
+
+empty_cell_finders = [
+    np.array([
+        [0,1,0],
+        [1,-1,1],
+        [0,1,0],
+    ]),
+    np.array([
+        [0,1,1,0],
+        [1,-1,-1,1],
+        [0,1,1,0],
+    ]),
+    np.array([
+        [0,1,1,0],
+        [1,-1,-1,1],
+        [0,1,1,0],
+    ]).T,
+]
+
 @dataclass
 class GameTree:
     state_action_idx_stack: List[Tuple[GameState, List[PiecePlacement], int]] = field(init=False)
@@ -119,6 +150,9 @@ class GameTree:
         self.state_action_idx_stack = [(gs, gs.find_placements(), 0)]
 
     def find_all_placements(self, game_state = GameState(), root=True):
+        for limit, empty_cell_finder in zip([4,6,6], empty_cell_finders):
+            if np.max(scipy.signal.convolve2d(empty_cell_finder, game_state.board)) == limit:
+                return
         if all([p.is_placed for p in game_state.placements]):
             self.successful_placements.append(game_state.placements)
             print(f"found {len(self.successful_placements)} solutions at {time.time() - start_time}")
@@ -127,6 +161,9 @@ class GameTree:
             return
         
         all_placements = game_state.find_placements()
+        if not all_placements:
+            print(f"Placed: {len([i for i in game_state.placements if i.is_placed])} {time.time() - start_time}")
+            print(game_state.board)
         for idx, placement in enumerate(all_placements):
             if root:
                 print(f"{idx} / {len(all_placements)} {time.time() - start_time}")
