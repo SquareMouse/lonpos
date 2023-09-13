@@ -34,23 +34,28 @@ class PiecePlacement:
     
 
 BOARD_SIZE = 10
+def make_board():
+    board = np.ones((BOARD_SIZE+2, BOARD_SIZE+2), dtype='uint8')
+    for col_idx in range(1, BOARD_SIZE+1):
+        for row_idx in range(col_idx, BOARD_SIZE + 1):
+            board[row_idx, col_idx] = 0
+    return board
+board = make_board()
+_color_to_placement_index = {placement.piece.color: idx for idx, placement in enumerate([PiecePlacement(piece) for piece in pieces.pieces])}
+
 @dataclass
 class GameState:
-    board: np.ndarray = field(init=False)
+    board: np.ndarray = field(default_factory=lambda: board.copy())
     placements: List[PiecePlacement] = field(default_factory=lambda: [PiecePlacement(piece) for piece in pieces.pieces])
-    _color_to_placement_index: Dict[pieces.Color, int] = field(init=False)
-    def __post_init__(self):
-        self.board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype='uint8')
-        for row_idx in range(BOARD_SIZE):
-            for col_idx in range(row_idx + 1, BOARD_SIZE):
-                self.board[row_idx, col_idx] = 1
-        self._color_to_placement_index = {placement.piece.color: idx for idx, placement in enumerate(self.placements)}
+    # def __post_init__(self):
+
         
     def find_placements(self) -> [PiecePlacement]:
         '''only choose ones that are touching an edge'''
         possible_placements = []
         unplaced = [copy.deepcopy(p) for p in self.placements if not p.is_placed]
         for placement in unplaced:
+            placed = False
             for flip in placement.piece.available_flip:
                 for rot in placement.piece.available_rotations:
                     placement1 = PiecePlacement(
@@ -65,18 +70,13 @@ class GameState:
                     for row in range(num_rows):
                         for col in range(num_cols):
                             if convolved[row, col] == 0:
-                                ok = False
-                                if row == 0 or row == convolved.shape[0] - 1:
-                                    ok = True
-                                if col == 0 or col == convolved.shape[1] - 1:
-                                    ok = True
-                                for (row_diff, col_diff) in [(r,c) for r in [-1,1] for c in [-1,1]]:
-                                    if ok == True:
-                                        break
-                                    if convolved[row + row_diff, col + col_diff] != 0:
-                                        ok = True
-                                if ok == False:
-                                    continue
+                                # ok = False
+                                # for (row_diff, col_diff) in [(r,c) for r in [-1,1] for c in [-1,1]]:
+                                #     if convolved[row + row_diff, col + col_diff] != 0:
+                                #         ok = True
+                                #         break
+                                # if ok == False:
+                                #     continue
                                         
                                 placement2 = PiecePlacement(
                                     piece=placement1.piece,
@@ -86,29 +86,24 @@ class GameState:
                                     col=col,
                                     is_placed=True
                                 )
-                                # placement2.row = row
-                                # placement2.col = col
-                                # placement2.is_placed = True
                                 possible_placements.append(placement2)
-                                # gs = self.apply_placement(placement2)
-                                # if np.max(gs.board) > 1:
-                                #     import pdb; pdb.set_trace()
+                                placed = True
 
+            if not placed:
+                return []
         return possible_placements
     
     def apply_placement(self, placement: PiecePlacement) -> 'GameState':
-        placement_index = self._color_to_placement_index[placement.piece.color]
+        placement_index = _color_to_placement_index[placement.piece.color]
         newGameState = copy.deepcopy(self)
         # newGameState.board = self.board
-        if not placement.is_placed:
-            import pdb; pdb.set_trace()
-            return newGameState
+        assert placement.is_placed
         newGameState.placements[placement_index] = copy.copy(placement)
         shape = placement.oriented_shape()
         num_shape_rows, num_shape_cols = shape.shape
         for row in range(num_shape_rows):
             for col in range(num_shape_cols):
-                newGameState.board[row + placement.row, col + placement.col] += shape[row, col]
+                newGameState.board[row + placement.row, col + placement.col] |= shape[row, col]
         
         return newGameState
 
@@ -142,84 +137,43 @@ empty_cell_finders = [
 
 @dataclass
 class GameTree:
-    state_action_idx_stack: List[Tuple[GameState, List[PiecePlacement], int]] = field(init=False)
     successful_placements: List[List[PiecePlacement]] = field(default_factory=list)
-    
-    def __post_init__(self):
-        gs = GameState()
-        self.state_action_idx_stack = [(gs, gs.find_placements(), 0)]
 
-    def find_all_placements(self, game_state = GameState(), root=True):
+    def find_all_placements(self, game_state = GameState(), depth=0):
         for limit, empty_cell_finder in zip([4,6,6], empty_cell_finders):
             if np.max(scipy.signal.convolve2d(empty_cell_finder, game_state.board)) == limit:
                 return
         if all([p.is_placed for p in game_state.placements]):
             self.successful_placements.append(game_state.placements)
             print(f"found {len(self.successful_placements)} solutions at {time.time() - start_time}")
-            # print([p.is_placed for p in game_state.placements])
-            # print(game_state.board)
             return
         
-        all_placements = game_state.find_placements()
-        if not all_placements:
-            print(f"Placed: {len([i for i in game_state.placements if i.is_placed])} {time.time() - start_time}")
-            print(game_state.board)
-        for idx, placement in enumerate(all_placements):
-            if root:
-                print(f"{idx} / {len(all_placements)} {time.time() - start_time}")
-            new_game_state = game_state.apply_placement(placement)
-            # print('new', len([i for i in new_game_state.placements if i.is_placed]))
-            self.find_all_placements(new_game_state, root=False)
-    
-    # def next(self):
-    #     game_state, placements, idx = self.state_action_idx_stack[-1]
-    #     placements = game_state.find_placements()
-    #     if len(self.state_action_idx_stack) == len(pieces.pieces):
-    #         self.successful_placements.append(game_state.placements)
-    #         print(f"Found {len(self.successful_placements)}th successful placement!")
-    #         # return False # end early
-
-
-    #     if idx >= len(placements):
-    #         print(f"depth: {len(self.state_action_idx_stack)} No actions left. Popping...")
-    #         print(game_state.board)
-    #         self.state_action_idx_stack.pop()
-
-    #         if len(self.state_action_idx_stack) == 0:
-    #             print("Complete!")
-    #             return False
-    #         else: 
-    #             return True
-
-    #     if not all([a == b for a, b in zip(game_state.find_placements(), placements)]):
-    #         test = [a == b for a, b in zip(game_state.find_placements(), placements)]
-    #         print(game_state.board)
-    #         print('first')
-    #         import pdb; pdb.set_trace()
-
-    #     test_game_state = apply_all_placements(game_state.placements)
-    #     if not np.all(test_game_state.board == game_state.board):
-    #         import pdb; pdb.set_trace()
+        # if depth <= 5:
+        #     print([p.is_placed for p in game_state.placements])
+        #     print(game_state.board)
         
-    #     self.state_action_idx_stack.pop()
-    #     self.state_action_idx_stack.append((game_state, placements, idx + 1))
-    #     newGameState = game_state.apply_placement(placements[idx])
-    #     self.state_action_idx_stack.append((newGameState, newGameState.find_placements(), 0))
+        all_placements = game_state.find_placements()
 
-    #     return True
+        if depth <= 5:
+            if np.min(apply_all_placements(all_placements).board) == 0:
+                print(f"Impossible at depth {depth}")
+                return
+
+        for idx, placement in enumerate(all_placements):
+            if depth < 6:
+                print(f"{' | ' * depth} {idx} / {len(all_placements)} {time.time() - start_time}")
+            new_game_state = game_state.apply_placement(placement)
+            self.find_all_placements(new_game_state, depth=depth + 1)
+
         
     
 import time
 start_time = time.time()
 gt = GameTree()
-# iter_count = 1000000
-# while(gt.next()):
-#     print(iter_count)
-#     iter_count -= 1
-#     if iter_count == 0:
-#         iter_count = int(input("Iterations: "))
+
 initial_game_state = GameState()
 gt.find_all_placements(initial_game_state)
+
 
 
 
