@@ -4,24 +4,42 @@ import numpy as np
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import List
+import termcolor
 
 class Color(Enum):
-    red  = auto()
-    magenta  = auto()
-    mistblue  = auto()
-    skyblue  = auto()
-    blue  = auto()
-    purple  = auto()
-    pink  = auto()
-    limegreen  = auto()
-    green  = auto()
-    orange  = auto()
-    yellow  = auto()
-    white  = auto()
+    black = 0
+    red  = 1
+    magenta  = 2
+    mistblue  = 3
+    skyblue  = 4
+    blue  = 5
+    purple  = 6
+    pink  = 7
+    limegreen  = 8
+    green  = 9
+    orange  = 10
+    yellow  = 11
+    white  = 12
 
+    def termcolor(self):
+        return {
+            Color.black: "on_black",
+            Color.red: "on_red",
+            Color.magenta: "on_magenta",
+            Color.mistblue: "on_light_cyan",
+            Color.skyblue: "on_light_blue",
+            Color.blue: "on_blue",
+            Color.purple: "on_light_magenta",
+            Color.pink: "on_light_red",
+            Color.limegreen: "on_light_green",
+            Color.green: "on_green",
+            Color.orange: "on_light_yellow", # wack
+            Color.yellow: "on_yellow",
+            Color.white: "on_white",
+        }[self]
      
 
-@dataclass
+@dataclass(slots=True)
 class Piece:
     shape: np.ndarray
     color: Color

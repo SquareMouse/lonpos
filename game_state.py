@@ -5,8 +5,9 @@ import pieces
 import scipy
 import copy
 from pprint import pprint
+from termcolor import cprint
 
-@dataclass
+@dataclass(slots=True)
 class PiecePlacement:
     piece: pieces.Piece
     rotation: int = 0
@@ -50,10 +51,13 @@ class GameState:
     # def __post_init__(self):
 
         
-    def find_placements(self) -> [PiecePlacement]:
+    def find_placements(self, depth=None) -> [PiecePlacement]:
         '''only choose ones that are touching an edge'''
         possible_placements = []
-        unplaced = [copy.deepcopy(p) for p in self.placements if not p.is_placed]
+        if depth is not None:
+            unplaced = [copy.deepcopy(self.placements[depth])]
+        else:
+            unplaced = [copy.deepcopy(p) for p in self.placements if not p.is_placed]
         for placement in unplaced:
             placed = False
             for flip in placement.piece.available_flip:
@@ -70,14 +74,6 @@ class GameState:
                     for row in range(num_rows):
                         for col in range(num_cols):
                             if convolved[row, col] == 0:
-                                # ok = False
-                                # for (row_diff, col_diff) in [(r,c) for r in [-1,1] for c in [-1,1]]:
-                                #     if convolved[row + row_diff, col + col_diff] != 0:
-                                #         ok = True
-                                #         break
-                                # if ok == False:
-                                #     continue
-                                        
                                 placement2 = PiecePlacement(
                                     piece=placement1.piece,
                                     flipped=flip,
@@ -106,64 +102,69 @@ class GameState:
                 newGameState.board[row + placement.row, col + placement.col] |= shape[row, col]
         
         return newGameState
+    
+    def show(self):
+        aggregate = np.zeros_like(self.board)
+        for placement in self.placements:
+            if not placement.is_placed:
+                continue
+            shape = placement.oriented_shape()
+            num_shape_rows, num_shape_cols = shape.shape
+            for row in range(num_shape_rows):
+                for col in range(num_shape_cols):
+                    if shape[row, col]:
+                        aggregate[row + placement.row, col + placement.col] = placement.piece.color.value
+        for row in aggregate:
+            for cell in row:
+                cprint("  ", "black", pieces.Color(cell).termcolor(), end="")
+            print()
 
+def apply_all_placements(placements, current_board: np.ndarray) -> np.ndarray:
+    board = current_board.copy()
 
-def apply_all_placements(placements) -> GameState:
-    gs = GameState()
-    gs.placements = copy.copy(placements)
     for placement in placements:
         if not placement.is_placed:
             continue
-        gs = gs.apply_placement(placement=placement)
-    return gs
-
-empty_cell_finders = [
-    np.array([
-        [0,1,0],
-        [1,-1,1],
-        [0,1,0],
-    ]),
-    np.array([
-        [0,1,1,0],
-        [1,-1,-1,1],
-        [0,1,1,0],
-    ]),
-    np.array([
-        [0,1,1,0],
-        [1,-1,-1,1],
-        [0,1,1,0],
-    ]).T,
-]
+        shape = placement.oriented_shape()
+        num_shape_rows, num_shape_cols = shape.shape
+        for row in range(num_shape_rows):
+            for col in range(num_shape_cols):
+                board[row + placement.row, col + placement.col] |= shape[row, col]
+    return board
 
 @dataclass
 class GameTree:
     successful_placements: List[List[PiecePlacement]] = field(default_factory=list)
 
     def find_all_placements(self, game_state = GameState(), depth=0):
-        for limit, empty_cell_finder in zip([4,6,6], empty_cell_finders):
-            if np.max(scipy.signal.convolve2d(empty_cell_finder, game_state.board)) == limit:
-                return
         if all([p.is_placed for p in game_state.placements]):
             self.successful_placements.append(game_state.placements)
             print(f"found {len(self.successful_placements)} solutions at {time.time() - start_time}")
+            game_state.show()
             return
         
         # if depth <= 5:
         #     print([p.is_placed for p in game_state.placements])
         #     print(game_state.board)
         
-        all_placements = game_state.find_placements()
+        # all_placements = game_state.find_placements()
 
-        if depth <= 5:
-            if np.min(apply_all_placements(all_placements).board) == 0:
-                print(f"Impossible at depth {depth}")
-                return
+        # # if len(all_placements) < 900:
+        all_applied_board = apply_all_placements(game_state.find_placements(), current_board=game_state.board)
+        if np.min(all_applied_board) == 0:
+            # print(f"Impossible at depth {depth} with len placements {len(all_placements)}")
+            # print(all_applied_board)
+            return
 
-        for idx, placement in enumerate(all_placements):
-            if depth < 6:
-                print(f"{' | ' * depth} {idx} / {len(all_placements)} {time.time() - start_time}")
+        next_piece_placements = game_state.find_placements(depth=depth)
+        for idx, placement in enumerate(next_piece_placements):
+            # if depth < 6:
+            #     print(f"{' | ' * depth} {idx} / {len(next_piece_placements)} {time.time() - start_time}")
+                
             new_game_state = game_state.apply_placement(placement)
             self.find_all_placements(new_game_state, depth=depth + 1)
+
+        
 
         
     
@@ -172,11 +173,23 @@ start_time = time.time()
 gt = GameTree()
 
 initial_game_state = GameState()
-gt.find_all_placements(initial_game_state)
+initial_game_state.placements[0].row = 8
+initial_game_state.placements[0].col = 6
+initial_game_state.placements[0].is_placed = True
 
+initial_game_state.placements[1].row = 9
+initial_game_state.placements[1].col = 1
+initial_game_state.placements[1].flipped = True
+initial_game_state.placements[1].rotation = 2
+initial_game_state.placements[1].is_placed = False
 
+initial_game_state.board = apply_all_placements(initial_game_state.placements, initial_game_state.board)
+gt.find_all_placements(initial_game_state, depth=1)
 
-
+start_time = time.time()
+print(f"terminated after {time.time() - start_time} seconds")
+for placement in gt.successful_placements:
+    print(placement)
 # g = apply_all_placements(gt.successful_placements[0])
 # print(g.board)
 
